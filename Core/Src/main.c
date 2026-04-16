@@ -108,6 +108,9 @@ int main(void)
 	  user_pwm_setvalue(pwm_value[i], i+1);
   }
   uint8_t k = 0;
+//  uint8_t positions[] = {20, 30, 40, 50, 60, 90, 100, 135, 100, 90};
+  uint8_t j = 0;
+  uint8_t s = 0;
   while (1)
   {
     /* USER CODE END WHILE */
@@ -121,6 +124,20 @@ int main(void)
 	if (k == 257){
 		k = 0;
 	}
+
+	user_pwm_setvalue(120 + j, 1);
+	j += 40;
+	if (j > 120){
+		j = 0;
+	}
+	s += 1;
+	if (s%2 == 0){
+		// Apre
+		user_pwm_setvalue(120 + 60, 2);
+	}else{
+		user_pwm_setvalue(120 + 90, 2);
+	}
+
   }
   /* USER CODE END 3 */
 }
@@ -191,9 +208,9 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 3200;
+  htim2.Init.Prescaler = 130;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 100;
+  htim2.Init.Period = 2400;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -254,9 +271,9 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 1 */
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 3200;
+  htim3.Init.Prescaler = 130;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 100;
+  htim3.Init.Period = 2400;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
@@ -291,10 +308,6 @@ static void MX_TIM3_Init(void)
     Error_Handler();
   }
   if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
   {
     Error_Handler();
   }
