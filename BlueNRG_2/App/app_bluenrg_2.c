@@ -414,7 +414,7 @@ static void User_Init(void)
   BSP_PB_Init(BUTTON_KEY, BUTTON_MODE_GPIO);
   BSP_LED_Init(LED2);
 
-  BSP_COM_Init(COM1);
+  //BSP_COM_Init(COM1);
 }
 
 /*******************************************************************************

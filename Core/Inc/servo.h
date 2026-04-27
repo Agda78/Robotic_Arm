@@ -32,7 +32,10 @@ extern TIM_HandleTypeDef htim3;
 
 // Dichiarazione delle funzioni di gestione dei servomotori
 void Motor_Init();
-void set_degrees(uint16_t degrees, uint8_t motor_id);
+
+// Oltre ad eseguire l'azionamento, ritorna un intero che permette di capire
+// se il movimento è andato a buon fine o meno
+uint8_t set_degrees(uint16_t degrees, uint8_t motor_id);
 
 // Funzioni di alto livello per migliorare la comprensione del codice
 void close_pinza();

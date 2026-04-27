@@ -42,9 +42,15 @@ void Motor_Init(){
  * @brief Funzione di "basso livello" per il controllo dei Servo Motori
  * @param value: Valore che indica l'angolo a cui impostare il servo-motore
  * @param motor_id: Valore che indica l'id del motore di cui andare a modificare l'angolo
+ * @retval movement_error: 0 -> ok, 1 -> out_of_degree, 2 -> other
+ *
  */
-void set_degrees(uint16_t degrees, uint8_t motor_id)
+uint8_t set_degrees(uint16_t degrees, uint8_t motor_id)
 {
+	// Variabile di restituzione del corretto funzionamento
+	// dei motori
+	uint8_t movement_error = 0;
+
 	// Andando a considerare il conteggio dei motori con un insieme N
 	// da cui partiamo dal valore 1 a seguire
 
@@ -66,6 +72,8 @@ void set_degrees(uint16_t degrees, uint8_t motor_id)
 
 			HAL_TIM_PWM_ConfigChannel(motors[motor_id - 1].Tim, &sConfigOC, motors[motor_id - 1].Channel);
 			HAL_TIM_PWM_Start(motors[motor_id - 1].Tim, motors[motor_id - 1].Channel);
+		}else{
+			movement_error = 1;
 		}
 	}else if(motor_id == MOTOR_NUM){
 		// Sì effettuano controlli diversi, per evitare la rottura del componente
@@ -78,8 +86,12 @@ void set_degrees(uint16_t degrees, uint8_t motor_id)
 
 			HAL_TIM_PWM_ConfigChannel(motors[motor_id - 1].Tim, &sConfigOC, motors[motor_id - 1].Channel);
 			HAL_TIM_PWM_Start(motors[motor_id - 1].Tim, motors[motor_id - 1].Channel);
+		}else{
+			movement_error = 1;
 		}
 	}
+
+	return movement_error;
 }
 
 void close_pinza(){
