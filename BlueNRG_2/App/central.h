@@ -44,7 +44,34 @@
 
 #define GENERIC_ACCESS_PROFILE_NAME    "Generic Access Profile"
 #define GENERIC_ATTRIBUTE_PROFILE_NAME "Generic Attribute Profile"
-#define CUSTOM_SERVICE_NAME            "Custom Service (UNKNOWN)"
+
+#define ST_HARDWARE_SERVICE_NAME "ST Custom Service (HARDWARE)"
+#define ST_CONFIG_SERVICE_NAME   "ST Custom Service (CONFIGUR.)"
+#define ST_SW_SENS_SERVICE_NAME  "ST Custom Service (SW SERVICE)"
+#define ST_CONSOLE_SERVICE_NAME  "ST Custom Service (CONSOLE)"
+#define CUSTOM_SERVICE_NAME      "Custom Service (UNKNOWN)"
+
+#define ST_ENVIRONMENTAL_CHAR_NAME       "ST Environmental Characteristic"
+#define ST_PRESSURE_CHAR_NAME            "ST Pressure Characteristic"
+#define ST_HUMIDITY_CHAR_NAME            "ST Humidity Characteristic";
+#define ST_TEMPERATURE_CHAR_NAME         "ST Temperature Characteristic"
+#define ST_LED_CHAR_NAME                 "ST LED Characteristic"
+#define ST_CONFIG_CHAR_NAME              "ST CFG Characteristic"
+#define ST_ACC_EVENT_CHAR_NAME           "ST Acc. Event Characteristic"
+#define ST_MIC_EVENT_CHAR_NAME           "ST MicEvt Characteristic"
+#define ST_PROXIMITY_CHAR_NAME           "ST Proximity Characteristic"
+#define ST_LUX_CHAR_NAME                 "ST Lux Characteristic"
+#define ST_ACC_GYRO_MAG_CHAR_NAME        "ST Acc-Gyr-Mag Characteristic"
+#define ST_QUATERNIONS_CHAR_NAME         "ST Quaternion Characteristic"
+#define ST_ECOMPASS_CHAR_NAME            "ST ECompass Characteristic"
+#define ST_ACTIVITY_REC_CHAR_NAME        "ST Activity Rec. Characteristic"
+#define ST_CARRY_POSITION_REC_CHAR_NAME  "ST Carry Pos. Rec. Charact."
+#define ST_GESTURE_REC_CHAR_NAME         "ST Gesture Rec. Characteristic"
+#define ST_ACC_PEDO_CHAR_NAME            "ST Pedometer Characteristic"
+#define ST_INTENSITY_DET_CHAR_NAME       "ST Intensity Det. Charact."
+#define ST_TERM_CHAR_NAME                "ST Terminal Characteristic"
+#define ST_STDERR_CHAR_NAME              "ST Std Error Characteristic"
+#define CUSTOM_CHAR_NAME                 "Custom Characteristic"
 
 /* Exported types ------------------------------------------------------------*/
 typedef enum {
@@ -174,8 +201,15 @@ void    Start_Scanning            (void);
 void    Save_Found_Device         (tBDAddr addr, uint8_t* addr_type,
                                    uint8_t data_length, uint8_t* data, uint8_t dev_idx);
 void    Save_NonConn_Device       (tBDAddr bdaddr);
+void    Print_Device_Info         (uint8_t dev_idx);
+void    Print_NonConn_Device      (tBDAddr addr, uint8_t* addr_type, uint8_t data_length,
+                                   uint8_t* data_value);
+void    Print_Service_Info        (uint8_t dev_idx, uint8_t serv_idx);
+void    Print_Characteristic_Info (uint8_t dev_idx, uint8_t serv_idx, uint8_t char_idx);
+void    Print_HRF_Value           (uint8_t data_length, uint8_t* value);
 uint8_t Is_Device_Saved           (tBDAddr addr);
 uint8_t Is_Device_Scanned         (tBDAddr addr);
+uint8_t Get_Index                 (uint8_t console_ch);
 void    Close_Connection          (void);
 void    Start_Connection          (uint8_t dev_idx);
 void    Discover_Services         (uint8_t dev_idx);

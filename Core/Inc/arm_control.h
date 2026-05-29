@@ -7,8 +7,12 @@ extern "C" {
 
 #include "main.h"
 
+extern volatile uint8_t movimento_braccio;
+
+#define TIMES_DELAY 50
+
 // Tale librerie viene implementata per effettuare le seguente operazioni
-// 1. Configurazione del sistema di gestione dei segnali dell'accellerometro
+// 1. Configurazione del sistema di gestione dei segnali dell'accelerometro
 // 2. Sistema di implementazione di sistemi di pulizia del segnale/filtraggio digitale
 // 3. Implementazione di un sistema ricunfigurabile di "guadagni" di velocità
 

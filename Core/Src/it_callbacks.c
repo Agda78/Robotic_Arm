@@ -19,10 +19,31 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		HAL_GPIO_WritePin(Test_PIN_GPIO_Port, Test_PIN_Pin, GPIO_PIN_SET);
 	}else if (GPIO_Pin == Safety_Reset_Pin){
 		// Caso in cui arriva un segnale per la ripresa dell'operatività
-		if (HAL_GPIO_ReadPin(Safety_Set_GPIO_Port, Safety_Set_Pin) == GPIO_PIN_SET){
+		if (HAL_GPIO_ReadPin(Safety_Set_GPIO_Port, Safety_Set_Pin) == GPIO_PIN_SET && HAL_GPIO_ReadPin(BCI_Set_GPIO_Port, BCI_Set_Pin) == GPIO_PIN_SET){
 			// Check per notare se il segnale di sicurezza sia funzionante o meno, prima di ri-attivare il braccio
 			safety_variable = 0;
 			HAL_GPIO_WritePin(Test_PIN_GPIO_Port, Test_PIN_Pin, GPIO_PIN_RESET);
+		}
+	}else if (GPIO_Pin == BCI_Set_Pin){
+		// Caso in cui il BCI passivo da segnale di non adeguatezza
+		// per segnalazione di non adeguatezza dello stato dell'operatore
+		safety_variable = 1;
+	}else if (GPIO_Pin == BCI_Reset_Pin){
+		// Caso di arrivo di una recovery
+		if (HAL_GPIO_ReadPin(BCI_Set_GPIO_Port, BCI_Set_Pin) == GPIO_PIN_SET && HAL_GPIO_ReadPin(Safety_Set_GPIO_Port, Safety_Set_Pin) == GPIO_PIN_SET){
+			safety_variable = 0;
+		}
+	}else if (GPIO_Pin == EF_Control_Pin){
+		// Implementazione del Toggle effettivo della pinza
+
+		// Primo If di sicurezza, anche se con la safety_variable dovrebbe essere fixed, il problam rimane il caso estremo
+		// di segnalazione durante un primo arrivo di tale ISR
+		if (HAL_GPIO_ReadPin(BCI_Set_GPIO_Port, BCI_Set_Pin) == GPIO_PIN_SET && HAL_GPIO_ReadPin(Safety_Set_GPIO_Port, Safety_Set_Pin) == GPIO_PIN_SET){
+			if (movimento_braccio == 0){
+				// Toggle dell'Intenzione
+				// Problema di gestione del movimento del braccio
+				toggle_pinza();
+			}
 		}
 	}
 	// HAL_GPIO_EXTI_IRQHandler(GPIO_Pin);

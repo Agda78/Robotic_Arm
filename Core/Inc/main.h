@@ -83,6 +83,15 @@ void Error_Handler(void);
 #define Safety_Set_EXTI_IRQn EXTI15_10_IRQn
 #define MOT_1_Pin GPIO_PIN_15
 #define MOT_1_GPIO_Port GPIOA
+#define BCI_Reset_Pin GPIO_PIN_4
+#define BCI_Reset_GPIO_Port GPIOB
+#define BCI_Reset_EXTI_IRQn EXTI4_IRQn
+#define BCI_Set_Pin GPIO_PIN_5
+#define BCI_Set_GPIO_Port GPIOB
+#define BCI_Set_EXTI_IRQn EXTI9_5_IRQn
+#define EF_Control_Pin GPIO_PIN_8
+#define EF_Control_GPIO_Port GPIOB
+#define EF_Control_EXTI_IRQn EXTI9_5_IRQn
 
 /* USER CODE BEGIN Private defines */
 

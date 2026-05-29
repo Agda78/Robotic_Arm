@@ -46,6 +46,7 @@ uint8_t set_degrees(uint16_t degrees, uint8_t motor_id);
 // Funzioni di alto livello per migliorare la comprensione del codice
 void close_pinza();
 void open_pinza();
+void toggle_pinza();
 
 #ifdef __cplusplus
 }

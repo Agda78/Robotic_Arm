@@ -21,6 +21,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include "central.h"
+#include "console.h"
+#include "st_data_parser.h"
 #include "bluenrg_conf.h"
 #include "bluenrg1_hal_aci.h"
 #include "bluenrg1_gap.h"
@@ -71,14 +73,22 @@ uint8_t Get_BLEFirmware_Details(void)
   BTLE_sv_patch = alphabet[BTLE_Stack_version_patch];
   DTM_v_patch = alphabet[DTM_version_patch];
 
-  printf("\r\n[BOOT] SensorTile Central v%d.%d.%d\r\n",
-         CENTRAL_MAJOR_VERSION, CENTRAL_MINOR_VERSION, CENTRAL_PATCH_VERSION);
+  message(ANSI_COLOR_RESET);    /* reset foreground color */
+  message(ANSI_CLEAR_SCREEN);   /* serial console clear screen */
+  message(ANSI_CURSOR_TO_HOME); /* serial console cursor to home */
+  message("\r\n");
+  message(" --------------------------------------------------------\r\n\n");
+  message(" BLE2 Universal Central v%d.%d.%d \r\n",
+          CENTRAL_MAJOR_VERSION, CENTRAL_MINOR_VERSION, CENTRAL_PATCH_VERSION);
+  message("\r\n");
 
   if (status == BLE_STATUS_SUCCESS) {
-    printf("[BOOT] BlueNRG-2 FW v%d.%d%c - DTM %s v%d.%d%c\r\n",
-           BTLE_Stack_version_major, BTLE_Stack_version_minor, BTLE_sv_patch,
-           DTM_variant == 0x01 ? "UART" : (DTM_variant == 0x02 ? "SPI" : "?"),
-           DTM_version_major, DTM_version_minor, DTM_v_patch);
+    message(" - BlueNRG-2 FW v%d.%d%c \r\n",
+            BTLE_Stack_version_major, BTLE_Stack_version_minor, BTLE_sv_patch);
+    message(" - DTM %s v%d.%d%c \r\n",
+            DTM_variant == 0x01 ? "UART" : (DTM_variant == 0x02 ? "SPI" : "unknown"),
+            DTM_version_major, DTM_version_minor, DTM_v_patch);
+    message("\r\n");
   }
 
   return status;
@@ -101,21 +111,8 @@ uint8_t CentralDevice_Init(void)
   uint8_t config_data_stored_static_random_address = 0x80; /* Offset of the static random address stored in NVM */
 
   /* Sw reset of the device */
-  /* Nel file central.c, all'interno di CentralDevice_Init */
-
-  /* 1. Reset standard dello stack BlueNRG-2 */
-  ret = hci_reset();
-  if (ret != BLE_STATUS_SUCCESS) return ret;
-
-  /* Attendi un breve istante per il reset hardware */
-  HAL_Delay(500);
-
-  /* Cancella il database di sicurezza (bonding info) salvato in Flash */
-  ret = aci_gap_clear_security_db();
-  if (ret != BLE_STATUS_SUCCESS) {
-      // Se fallisce qui, il database è già vuoto
-  }
-  /*
+  hci_reset();
+  /**
    *  To support both the BlueNRG-2 and the BlueNRG-2N a minimum delay of 2000ms is required at device boot
    */
   HAL_Delay(2000);
@@ -158,28 +155,11 @@ uint8_t CentralDevice_Init(void)
   /* GAP Init */
   ret = aci_gap_init(GAP_CENTRAL_ROLE, 0, sizeof(device_name), &service_handle, &dev_name_char_handle,
                      &appearance_char_handle);
-
   if (ret != BLE_STATUS_SUCCESS)
   {
     PRINT_DBG("aci_gap_init() --> Failed 0x%02x\r\n", ret);
     return ret;
   }
-
-  /* No-pairing / JustWorks: il firmware entry-expert della SensorTile.box PRO
-     non usa PIN*/
-  ret = aci_gap_set_io_capability(0x03); /* NoInputNoOutput */
-  if (ret != BLE_STATUS_SUCCESS) return ret;
-
-  ret = aci_gap_set_authentication_requirement(
-        0x00,   /* Bonding_Mode: NO_BONDING */
-        0x00,   /* MITM_Mode:    MITM_PROTECTION_NOT_REQUIRED */
-        0x00,   /* SC_Support:   disabled */
-        0x00,   /* KeyPress_Notification_Support */
-        7, 16,
-        0x00,   /* Use_Fixed_Pin: 0 (no fixed PIN) */
-        0,
-        0x00);
-  if (ret != BLE_STATUS_SUCCESS) return ret;
 
   /* Update device name */
   ret = aci_gatt_update_char_value(service_handle, dev_name_char_handle, 0, sizeof(device_name),
@@ -280,7 +260,7 @@ void Close_Connection(void)
     printf("aci_gap_terminate() failed: %02X\n",ret);
   }
 
-  HAL_Delay(100); /* see comment @file bluenrg1_gap_aci.h */
+  HAL_Delay(100); /* see comment @file bluenrg1_gap_aci.h, procedure aci_gap_terminate() */
 }
 
 /**
@@ -375,14 +355,110 @@ void Discover_Characteristics(uint8_t dev_idx, uint8_t serv_idx)
 void Update_Characteristic (uint8_t dev_idx, uint8_t serv_idx, uint8_t char_idx,
                             uint8_t prop_idx)
 {
-  /* Nel flow automatico viene usato solo prop_idx = 4 (enable notify) */
-  if (prop_idx == 4) {
-    if (saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].notify) {
-      Set_Notifications(dev_idx, serv_idx, char_idx, 0x01);
-    } else {
-      printf("[GATT] Notify non supportato\r\n");
-    }
+  uint16_t connection_handle = saved_devices.dev_info[dev_idx].conn_handle;
+  uint16_t attr_handle;
+
+  uint8_t ret;
+
+  if (serv_idx > (saved_devices.dev_info[dev_idx].serv_num - 1))
+  {
+    printf(" The service x=%d does not exist!\r\n", serv_idx);
+    central_status = SELECT_ANOTHER_CHARACTERISTIC;
+    return;
   }
+  if ((saved_devices.dev_info[dev_idx].serv_info[serv_idx].serv_type == GENERIC_ACCESS_PROFILE_TYPE) ||
+      (saved_devices.dev_info[dev_idx].serv_info[serv_idx].serv_type == GENERIC_ATTRIBUTE_PROFILE_TYPE))
+  {
+    printf(" Services:\n - %s\n - %s\n are not supported!\r\n",
+           GENERIC_ACCESS_PROFILE_NAME, GENERIC_ATTRIBUTE_PROFILE_NAME);
+    central_status = SELECT_ANOTHER_CHARACTERISTIC;
+    return;
+  }
+  if (char_idx > (saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_num - 1))
+  {
+    printf(" The characteristic y=%d does not exist!\r\n", char_idx);
+    central_status = SELECT_ANOTHER_CHARACTERISTIC;
+    return;
+  }
+
+  switch (prop_idx)
+  {
+  case (1):
+    if (saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].read) {
+      attr_handle = saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].decl_handle + 1;
+      ret = aci_gatt_read_char_value(connection_handle, attr_handle);
+      if (ret != BLE_STATUS_SUCCESS) {
+        printf(" Unable to read data from device %d (err 0x%02x, 0x%04x - 0x%04x)\r\n",
+               dev_idx, ret, connection_handle, attr_handle);
+        central_status = SELECT_ANOTHER_CHARACTERISTIC;
+      }
+    }
+    else {
+      printf(" The selected characteristic is not readable!\r\n");
+      central_status = SELECT_ANOTHER_CHARACTERISTIC;
+    }
+    break;
+  case (2):
+  case (3):
+    if (saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].write) {
+      /**
+       * With an ATT write request (or notification), 3 bytes are
+       * used by command type and attribute ID, 20 bytes are left
+       * for the attribute data.
+       */
+      uint8_t attribute_val_length;
+      uint8_t attribute_val[MAX_STRING_LENGTH];
+
+      printf("\n Type the value (max %d characters, 'ENTER' to send): ", MAX_STRING_LENGTH);
+      printf("\n\n ");
+      attribute_val_length = Get_Value(attribute_val);
+      printf("\n");
+
+      central_status = WRITING_CHARACTERISTIC_VALUE;
+
+      attr_handle = saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].value_handle;
+      ret = aci_gatt_write_char_value(connection_handle, attr_handle,
+                                      attribute_val_length, attribute_val);
+      if (ret != BLE_STATUS_SUCCESS) {
+        printf(" Unable to write characteristic %d (dev %d, serv %d, err 0x%02x, 0x%04x - 0x%04x)\r\n",
+               char_idx, dev_idx, serv_idx, ret, connection_handle, attr_handle);
+        central_status = SELECT_ANOTHER_CHARACTERISTIC;
+      }
+    }
+    else {
+      printf(" The selected characteristic is not writable!\r\n");
+      central_status = SELECT_ANOTHER_CHARACTERISTIC;
+    }
+    break;
+  case (4):
+    if (saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].notify) {
+      Set_Notifications(dev_idx, serv_idx, char_idx, 0x01); /* enable notifications */
+    }
+    else {
+      printf(" The notify property can't be enabled for the selected characteristic!\r\n");
+      central_status = SELECT_ANOTHER_CHARACTERISTIC;
+    }
+    break;
+  case (5):
+    if (saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].indicate) {
+      Set_Notifications(dev_idx, serv_idx, char_idx, 0x02); /* enable indications */
+    }
+    else {
+      printf(" The indicate property can't be enabled for the selected characteristic!\r\n");
+      central_status = SELECT_ANOTHER_CHARACTERISTIC;
+    }
+    break;
+  case (0):
+  case (6):
+    printf(" The property z=%d is not supported!\r\n", prop_idx);
+    central_status = SELECT_ANOTHER_CHARACTERISTIC;
+    break;
+  default:
+    printf(" The property z=%d does not exist!\r\n", prop_idx);
+    central_status = SELECT_ANOTHER_CHARACTERISTIC;
+    break;
+  }
+
 }
 
 /**
@@ -480,6 +556,429 @@ void Save_NonConn_Device(tBDAddr addr)
 }
 
 /**
+ * @brief  Print all information related to a saved device
+ * @param  device position in the saved devices structure
+ * @retval None
+ */
+void Print_Device_Info(uint8_t device_index)
+{
+  uint8_t i = device_index;
+
+  /* print the address */
+  printf("\r\n");
+  printf(" %d. BLE device: address %02x:%02x:%02x:%02x:%02x:%02x\r\n",
+         i, saved_devices.dev_info[i].bdaddr[5], saved_devices.dev_info[i].bdaddr[4],
+         saved_devices.dev_info[i].bdaddr[3], saved_devices.dev_info[i].bdaddr[2],
+         saved_devices.dev_info[i].bdaddr[1], saved_devices.dev_info[i].bdaddr[0]);
+
+  /* the device is connectable */
+  printf("                connectable\n");
+
+  /* print the address type */
+  printf("                %s address type\n",
+         (saved_devices.dev_info[i].addr_type==0x00 ? "public" : (saved_devices.dev_info[i].addr_type==0x01 ? "private" : "unknown")));
+
+  /* print the name */
+  printf("                name ");
+  printf("%s", saved_devices.dev_info[i].name);
+  printf("\n");
+
+  if (saved_devices.dev_info[i].conn_handle != 0) {
+    printf("                connection handle 0x%04x\n", saved_devices.dev_info[i].conn_handle);
+  }
+
+  return;
+}
+
+/**
+ * @brief  Print info about non connectable devices (e.g. Beacon)
+ * @param  addr
+ * @param  address type (0x00 Public Device Address, 0x01 Random Device Address)
+ * @param  data_length
+ * @param  data_value
+ * @retval None
+ */
+void Print_NonConn_Device(tBDAddr addr, uint8_t* addr_type, uint8_t data_length,
+                          uint8_t* data_value)
+{
+  uint8_t i = 0;
+  uint8_t name_length;
+  uint8_t name[MAX_NAME_LENGTH];
+
+  printf(ANSI_COLOR_WHITE); /* to print logs in matt white (like a gray) */
+
+  /* print the address */
+  printf("\r\n");
+  printf("    BLE device: address %02x:%02x:%02x:%02x:%02x:%02x\r\n",
+         addr[5], addr[4], addr[3], addr[2], addr[1], addr[0]);
+  printf("                non-connectable\n");
+
+  /* print the address type */
+  printf("                %s address type\n",
+         (*addr_type==0x00 ? "public" : (*addr_type==0x01 ? "private" : "unknown")));
+
+  name_length = strlen("Unknown");
+  BLUENRG_memcpy(name, "Unknown", name_length);
+  while (i < data_length)
+  {
+    /* Advertising data fields: len, type, values */
+    /* Check if field is a complete or a short local name */
+    if ((data_value[i+1] == AD_TYPE_COMPLETE_LOCAL_NAME) ||
+        (data_value[i+1] == AD_TYPE_SHORTENED_LOCAL_NAME))
+    {
+      name_length = (data_value[i]-1);
+      BLUENRG_memcpy(name, &data_value[i+2], name_length);
+      break;
+    }
+    else
+    {
+      /* move to next advertising field */
+      i += (data_value[i] + 1);
+    }
+  }
+
+  /* print the name */
+  printf("                name ");
+  printf("%s\n", name);
+
+  if (data_value[0]==0x02) { /* the AD Type Flags are at the beginning of the Advertising packet */
+    i=3;
+  }
+  else { /* no AD Type Flags at the beginning of the Advertising packet */
+    i=0;
+  }
+  /**
+   * iBeacon
+   *
+   * (byte pos)   0   1   2   3   4    5-6   7   8      9-24  25-26  27-28     29
+   *             FL  FT  FT  FL  FT  Manuf  st  FL  Loc-UUID    Maj    Min  SigPW
+   * (hex)       02  01  06  1a  FF  30 00  02  15
+   *
+   * FL = Field Length
+   * FT = Field Type
+   * Manuf = Manufacturer ID (0x0030 STMicroelectronics)
+   * st = SubType (0x02 iBeacon)
+   * Loc-UUID = Location UUID
+   * Maj = Major number
+   * Min = Minor number
+   * SigPW = Signal Power
+  */
+  if ((data_value[1+i]==AD_TYPE_MANUFACTURER_SPECIFIC_DATA) && (data_value[4+i]==0x02)) {
+    printf("                iBeacon ");
+    if ((data_value[1+i]==0xFF) &&
+        (data_value[2+i]==0x30) &&
+          (data_value[3+i]==0x00)) {//Company identifier code (Default is 0x0030 - STMicroelectronics))
+            printf("[Manuf.: ST]");
+          }
+    else {
+      printf("[Manuf.: Unknown]");
+    }
+    printf("\n");
+  }
+  /**
+   * Eddystone Beacon Advertising Packet
+   * (byte pos)  0   1   2   3   4     5-6     7     8    9-10
+   *            FL  FT  fl  FL  CL  E-UUID    FL    SD  E-UUID
+   * (hex)      02  01  06  03  03   AA FE  0xnn  0x16   AA FE
+   *
+   * FL = Field Length
+   * FT = Field Type
+   * fl = LE and BR/EDR flag
+   * CL = Complete list of service UUID
+   * SD = Service Data
+   * E-UUID = Eddystone UUID (0xFEAA)
+   */
+  else if ((data_value[5+i]==AD_TYPE_SERVICE_DATA) && (data_value[6+i]==0xAA) && (data_value[7+i]==0xFE)) {
+    printf("                Eddystone Beacon ");
+    if (data_value[8+i]==0x00) {
+      printf("[UID]");
+    }
+    else if (data_value[8+i]==0x10) {
+      printf("[URL]");
+    }
+    else if (data_value[8+i]==0x20) {
+      printf("[TLM]");
+    }
+    printf("\n");
+  }
+
+  printf(ANSI_COLOR_RESET); /* reset color to default value for log print */
+
+  return;
+}
+
+/**
+ * @brief  Print all information related to a device service
+ * @param  device position in the saved devices structure
+ * @param  service position in the saved services structure
+ * @retval None
+ */
+void Print_Service_Info(uint8_t dev_idx, uint8_t serv_idx)
+{
+  uint8_t i;
+  uint8_t len;
+
+  len = saved_devices.dev_info[dev_idx].serv_info[serv_idx].name_length;
+
+  printf(ANSI_COLOR_RESET); /* reset color to default value for log print */
+  if ((saved_devices.dev_info[dev_idx].serv_info[serv_idx].serv_type == GENERIC_ACCESS_PROFILE_TYPE) ||
+      (saved_devices.dev_info[dev_idx].serv_info[serv_idx].serv_type == GENERIC_ATTRIBUTE_PROFILE_TYPE))
+  {
+    printf(ANSI_COLOR_WHITE); /* to print logs in matt white (like a gray) */
+  }
+
+  printf(" %d. ", serv_idx);
+  for (i=0; i<len; i++) {
+    printf("%c", saved_devices.dev_info[dev_idx].serv_info[serv_idx].name[i]);
+  }
+  printf("\n");
+
+  len = saved_devices.dev_info[dev_idx].serv_info[serv_idx].uuid_length;
+  printf("    - UUID ");
+  for (i=len; i>0; i--) {
+    printf("%02x", saved_devices.dev_info[dev_idx].serv_info[serv_idx].uuid[i-1]);
+    if ((i==13) || (i==11) || (i==9) || (i==7)) {
+      printf("-");
+    }
+  }
+  printf("\n");
+  printf("    - attribute handles 0x%04x - 0x%04x\n",
+         saved_devices.dev_info[dev_idx].serv_info[serv_idx].start_handle,
+         saved_devices.dev_info[dev_idx].serv_info[serv_idx].end_handle);
+}
+
+/**
+ * @brief  Print all information related to a service characteristic
+ * @param  device position in the saved device struct
+ * @param  service position in the saved service struct
+ * @param  characteristic position in the saved characteristic struct
+ * @retval None
+ */
+void Print_Characteristic_Info(uint8_t dev_idx, uint8_t serv_idx, uint8_t char_idx)
+{
+  uint8_t  i, len;
+
+  len = saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].name_length;
+  /* Char name */
+  printf("    %d. ", char_idx);
+  for (i=0; i<len; i++) {
+    printf("%c", saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].name[i]);
+  }
+  printf("\n");
+
+  len = saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].uuid_length;
+
+  /* Char UUID */
+  printf("       -. UUID ");
+  for (i=len; i>0; i--) {
+    printf("%02x", saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].uuid[i-1]);
+    if ((i==13) || (i==11) || (i==9) || (i==7)) {
+      printf("-");
+    }
+  }
+  printf("\n");
+
+  /* Char declaration and value handles */
+  printf("       -. declaration_handle = 0x%04x\n",
+         saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].decl_handle);
+  printf("       -. value_handle       = 0x%04x\n",
+         saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].value_handle);
+
+  /* Char properties */
+  printf("       0. broadcast          = %d\n",
+         saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].broadcast);
+  printf("       1. read               = %d\n",
+         saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].read);
+  printf("       2. writeWoResp        = %d\n",
+         saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].write_wo_resp);
+  printf("       3. write              = %d\n",
+         saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].write);
+  printf("       4. notify             = %d\n",
+         saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].notify);
+  printf("       5. indicate           = %d\n",
+         saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].indicate);
+  printf("       6. authSignedWrite    = %d\n",
+         saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].auth_signed_write);
+
+  printf(ANSI_COLOR_RESET);    /* reset previous color for log print */
+
+}
+
+/**
+ * @brief  Recognize a data value from a ST characteristic and print it in
+ *         human readable format
+ * @param  The data length
+ * @param  The received data
+ * @retval None
+ */
+void Print_HRF_Value(uint8_t data_length, uint8_t* value)
+{
+  uint16_t tmp_ui16 = 0;
+  uint32_t tmp_ui32 = 0;
+  uint8_t  dev_idx  = saved_devices.dev_idx;
+  uint8_t  serv_idx = saved_devices.dev_info[dev_idx].serv_idx;
+  uint8_t  char_idx = saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_idx;
+
+  if ((saved_devices.dev_info[dev_idx].serv_info[serv_idx].serv_type != NO_SERVICE_TYPE) &&
+      (saved_devices.dev_info[dev_idx].serv_info[serv_idx].serv_type != CUSTOM_SERVICE_TYPE))
+  {
+    if ((saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].char_type != NO_CHARACTERISTIC_TYPE) &&
+        (saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].char_type != CUSTOM_CHAR_TYPE))
+    {
+      printf(" Value (HRF): ");
+      /* Timestamp */
+      printf("TStamp %05d ", Get_Timestamp(data_length, value));
+
+      switch (saved_devices.dev_info[dev_idx].serv_info[serv_idx].char_info[char_idx].char_type)
+      {
+      case (ST_ENVIRONMENTAL_CHAR_TYPE):
+        /* Pressure */
+        tmp_ui32 = Get_Pressure(data_length, value);
+        printf("Press[mBar] %d.%d ", (uint16_t)(tmp_ui32/100), (uint16_t)(tmp_ui32%100));
+        if (data_length == ENV_DATA_LEN_LONG) {
+          /* Humidity */
+          tmp_ui16 = Get_Humidity(data_length, value);
+          printf("Hum[%c] %d.%d ", '%', tmp_ui16/10, tmp_ui16%10);
+          /* Temperature 2 */
+          tmp_ui16 = Get_Temperature(data_length, value, 2);
+          printf("Temp2[C] %d.%d ", tmp_ui16/10, tmp_ui16%10);
+          /* Temperature 1 */
+          tmp_ui16 = Get_Temperature(data_length, value, 1);
+          printf("Temp1[C] %d.%d \r\n", tmp_ui16/10, tmp_ui16%10);
+        }
+        else if (data_length == ENV_DATA_LEN_SHORT) {
+          /* Temperature 1 */
+          tmp_ui16 = Get_Temperature(data_length, value, 1);
+          printf("Temp1[C] %d.%d \r\n", tmp_ui16/10, tmp_ui16%10);
+        }
+        break;
+      case (ST_PRESSURE_CHAR_TYPE):
+        /* Pressure */
+        tmp_ui32 = Get_Pressure(data_length, value);
+        printf("Press[mBar] %d.%d \r\n", (uint16_t)(tmp_ui32/100), (uint16_t)(tmp_ui32%100));
+        break;
+      case (ST_HUMIDITY_CHAR_TYPE):
+        /* Humidity */
+        tmp_ui16 = Get_Humidity(data_length, value);
+        printf("Hum[%c] %d.%d \r\n", '%', tmp_ui16/10, tmp_ui16%10);
+        break;
+      case (ST_TEMPERATURE_CHAR_TYPE):
+        /* Temperature 1 */
+        tmp_ui16 = Get_Temperature(data_length, value, 1);
+        printf("Temp1[C] %d.%d \r\n", tmp_ui16/10, tmp_ui16%10);
+        break;
+      case (ST_CO_CHAR_TYPE):
+        /* CO */
+        tmp_ui32 = Get_CO(data_length, value);
+        printf("CO[%c] %d.%d", '%', (uint16_t)(tmp_ui32/100), (uint16_t)(tmp_ui32%100));
+        break;
+      case (ST_LED_CHAR_TYPE):
+        {
+          /* LED status (0=OFF, 1=ON) */
+          uint8_t tmp_ui8 = Get_LED_Status(data_length, value);
+          printf("LED %s \r\n", ((tmp_ui8 == 0) ? "OFF" : "ON"));
+        }
+        break;
+      case (ST_CONFIG_CHAR_TYPE):
+        printf(" HRF not supported! \r\n");
+        break;
+      case (ST_ACC_EVENT_CHAR_TYPE):
+        printf(" Acc. Event: %s \r\n", Get_Acc_Event(data_length, value).type_name);
+      break;
+      case (ST_MIC_EVENT_CHAR_TYPE):
+        /* Microphone [db] */
+        printf("Mic[db] %d \r\n", Get_Mic_Audio_Level(data_length, value));
+        break;
+      case (ST_PROXIMITY_CHAR_TYPE):
+        /* Proximity [mm] */
+        printf("PRX[mm] %d \r\n", Get_Proximity(data_length, value));
+        break;
+      case (ST_LUX_CHAR_TYPE):
+        /* Brightness */
+        printf("LUX %d \r\n", Get_Lux_Level(data_length, value));
+        break;
+      case (ST_ACC_GYRO_MAG_CHAR_TYPE):
+        {
+          motionData_t motion = Get_Motion_Data(data_length, value);
+          printf("ACC[mg]  X %s%d Y %s%d Z %s%d ",
+                 (motion.acc.x.is_neg == 1) ? "-" : "", motion.acc.x.val,
+                 (motion.acc.y.is_neg == 1) ? "-" : "", motion.acc.y.val,
+                 (motion.acc.z.is_neg == 1) ? "-" : "", motion.acc.z.val);
+          printf("\n                           GYR[dps] ");
+          printf("X %s%d.%d Y %s%d.%d Z %s%d.%d ",
+                 (motion.gyr.x.is_neg == 1) ? "-" : "", motion.gyr.x.val/10, motion.gyr.x.val%10,
+                 (motion.gyr.y.is_neg == 1) ? "-" : "", motion.gyr.y.val/10, motion.gyr.y.val%10,
+                 (motion.gyr.z.is_neg == 1) ? "-" : "", motion.gyr.z.val/10, motion.gyr.z.val%10);
+          printf("\n                           MAG[mGa] ");
+          printf("X %s%d Y %s%d Z %s%d ",
+                 (motion.mag.x.is_neg == 1) ? "-" : "", motion.mag.x.val,
+                 (motion.mag.y.is_neg == 1) ? "-" : "", motion.mag.y.val,
+                 (motion.mag.z.is_neg == 1) ? "-" : "", motion.mag.z.val);
+          printf("\r\n");
+        }
+        break;
+      case (ST_QUATERNIONS_CHAR_TYPE):
+        {
+          quatData_t quat = Get_Quaternions_Data(data_length, value);
+          printf("QUAT1 ");
+          printf("X %s%d Y %s%d Z %s%d ",
+                 (quat.q1.x.is_neg == 1) ? "-" : "", quat.q1.x.val,
+                 (quat.q1.y.is_neg == 1) ? "-" : "", quat.q1.y.val,
+                 (quat.q1.z.is_neg == 1) ? "-" : "", quat.q1.z.val);
+          if ((data_length == QUATERNIONS_2_DATA_LEN) || (data_length == QUATERNIONS_3_DATA_LEN)) {
+            printf("\n                           QUAT2 ");
+            printf("X %s%d Y %s%d Z %s%d ",
+                   (quat.q2.x.is_neg == 1) ? "-" : "", quat.q2.x.val,
+                   (quat.q2.y.is_neg == 1) ? "-" : "", quat.q2.y.val,
+                   (quat.q2.z.is_neg == 1) ? "-" : "", quat.q2.z.val);
+          }
+          if (data_length == QUATERNIONS_3_DATA_LEN) {
+            printf("\n                           QUAT3 ");
+            printf("X %s%d Y %s%d Z %s%d ",
+                   (quat.q3.x.is_neg == 1) ? "-" : "", quat.q3.x.val,
+                   (quat.q3.y.is_neg == 1) ? "-" : "", quat.q3.y.val,
+                   (quat.q3.z.is_neg == 1) ? "-" : "", quat.q3.z.val);
+          }
+          printf("\r\n");
+        }
+        break;
+      case (ST_ECOMPASS_CHAR_TYPE):
+        /* E-Compass (angle to Magnetic North in cents of degree [0.00 -> 359,99]) */
+        tmp_ui16 = Get_ECompass(data_length, value);
+        printf("E-Compass[degree]: %d.%d \r\n", tmp_ui16/100, tmp_ui16%100);
+        break;
+      case (ST_ACTIVITY_REC_CHAR_TYPE):
+        /* Activity Recognition */
+        printf("Activity Rec.: %s \r\n", Get_Activity_Recognition(data_length, value).type_name);
+        break;
+      case (ST_CARRY_POSITION_REC_CHAR_TYPE):
+        /* Carry Position Recognition */
+        printf("Carry Pos. Rec.: %s \r\n", Get_Carry_Pos_Recognition(data_length, value).type_name);
+        break;
+      case (ST_GESTURE_REC_CHAR_TYPE):
+        /* Gesture Recognition */
+        printf("Gest. Rec.: %s \r\n", Get_Gesture_Recognition(data_length, value).type_name);
+        break;
+      case (ST_ACC_PEDO_CHAR_TYPE):
+        /* Pedometer */
+        printf("Pedometer: ");
+        printf("steps %d ", (uint16_t)(Get_Pedometer_Info(data_length, value).steps));
+        printf("steps/min %d \r\n", Get_Pedometer_Info(data_length, value).steps_min);
+        break;
+      case (ST_INTENSITY_DET_CHAR_TYPE):
+        /* Intensity Detection */
+        printf("Int. Det.: %s \r\n", Get_Motion_Intensity(data_length, value).type_name);
+        break;
+      default:
+        printf(" \r\n");
+        break;
+      }
+    }
+  }
+
+}
+
+/**
  * @brief  Search for an already saved device
  * @param  address of the device to search for
  * @retval TRUE if the device has been already saved, FALSE otherwise
@@ -529,6 +1028,54 @@ uint8_t Is_Device_Scanned(tBDAddr addr)
   PRINT_DBG("Current device %02x:%02x:%02x:%02x:%02x:%02x not yet scanned (%d)\n",
          addr[5], addr[4], addr[3], addr[2], addr[1], addr[0],i);
   return FALSE;
+}
+
+/**
+ * @brief  Translate the console input into an integer
+ * @param  The console input
+ * @retval The integer
+ */
+uint8_t Get_Index(uint8_t console_ch)
+{
+  uint8_t index = TYPED_ERROR_VALUE;
+
+  switch (console_ch)
+  {
+  case ('0'):
+    index = 0;
+    break;
+  case ('1'):
+    index = 1;
+    break;
+  case ('2'):
+    index = 2;
+    break;
+  case ('3'):
+    index = 3;
+    break;
+  case ('4'):
+    index = 4;
+    break;
+  case ('5'):
+    index = 5;
+    break;
+  case ('6'):
+    index = 6;
+    break;
+  case ('7'):
+    index = 7;
+    break;
+  case ('8'):
+    index = 8;
+    break;
+  case ('9'):
+    index = 9;
+    break;
+  default:
+    PRINT_DBG("\r Undefined input!\r\n");
+    break;
+  }
+  return index;
 }
 
 /**

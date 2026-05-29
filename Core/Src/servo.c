@@ -3,6 +3,8 @@
 // Array di raccolta dei motori
 Motor_t motors[MOTOR_NUM];
 
+volatile uint8_t stato_pinza = 0;
+
 void Motor_Init(){
 	// Definizione manuale dei motori
 	// Tali scelte sono state prese a valle della configurazione dell'hardware
@@ -86,8 +88,18 @@ uint8_t set_degrees(uint16_t degrees, uint8_t motor_id)
 
 void close_pinza(){
 	set_degrees(MAX_DEGREE_PINZA, MOTOR_NUM);
+	stato_pinza = 1;
 }
 
 void open_pinza(){
 	set_degrees(MIN_DEGREE_PINZA, MOTOR_NUM);
+	stato_pinza = 0;
+}
+
+void toggle_pinza(){
+	if (stato_pinza == 0){
+		close_pinza();
+	}else{
+		open_pinza();
+	}
 }
