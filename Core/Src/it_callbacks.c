@@ -55,13 +55,21 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 
 	if (htim->Instance == TIM4){
 		if (ready_data == 1) {
+			n_executions = 0;
 			for (uint8_t i = 0; i < 3; i++){
 				buffer_acc[i] = valori_ricevuti[i];
 			}
 			ready_data = 0;
+		}else{
+			n_executions++;
 		}
 
-		azionamento_braccio_filtrato(buffer_acc);
+		// Tale if permette di evitare che nel caso di disconnessione della sensor tile, il braccio continui
+		// a muoversi
+		if (n_executions <= TIMES_TIMEOUT){
+			azionamento_braccio_filtrato(buffer_acc);
+		}
+
 		// HAL_GPIO_TogglePin(Test_PIN_GPIO_Port, Test_PIN_Pin);
 
 		htim->State = HAL_TIM_STATE_READY;
